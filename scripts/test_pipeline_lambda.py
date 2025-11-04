@@ -1,12 +1,3 @@
-"""
-Image Captioning & Generation Pipeline - MULTI-ITERATION VERSION
-
-Tests iterative caption->image->caption cycles to measure compounding information loss.
-
-GPU Memory Requirements: ~16-18 GB
-Recommended Instance: A10 (24GB VRAM)
-"""
-
 import os
 import gc
 import csv
@@ -23,10 +14,8 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
 
+# CONFIG
 REPLICATE_API_TOKEN = os.environ.get('REPLICATE_API_TOKEN')
 if not REPLICATE_API_TOKEN:
     raise ValueError("REPLICATE_API_TOKEN not found in environment variables")
@@ -45,10 +34,8 @@ NUM_IMAGES = 50  # Number of images to process
 OUTPUT_DIR = "output_images_multi_iter"
 CSV_FILE = "iteration_results.csv"
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
 
+# UTILITY FUNCTIONS
 def print_gpu_memory():
     """Print current GPU memory usage"""
     if torch.cuda.is_available():
@@ -65,7 +52,7 @@ def clear_memory():
 def setup_output_dir():
     """Create output directory if it doesn't exist"""
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
-    print(f"✓ Output directory: {OUTPUT_DIR}")
+    print(f"Output directory: {OUTPUT_DIR}")
 
 def calculate_detailed_metrics(caption_original, caption_current):
     """Calculate multiple fine-grained metrics"""
@@ -99,10 +86,7 @@ def calculate_detailed_metrics(caption_original, caption_current):
         'word_retention': word_retention
     }
 
-# ============================================================================
 # MAIN PIPELINE
-# ============================================================================
-
 def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt, timestamp, num_iterations):
     """Run multiple caption->generate->caption cycles"""
     
@@ -208,19 +192,16 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
 def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    print("="*80)
     print("MULTI-ITERATION IMAGE CAPTIONING PIPELINE")
-    print("="*80)
     print(f"Processing {NUM_IMAGES} images with {NUM_ITERATIONS} iterations each")
     
     # Check GPU availability
     print("\n1. CHECKING GPU AVAILABILITY")
-    print("-" * 80)
     if not torch.cuda.is_available():
         print("ERROR: No GPU detected!")
         return
     
-    print(f"✓ GPU detected: {torch.cuda.get_device_name(0)}")
+    print(f"GPU detected: {torch.cuda.get_device_name(0)}")
     print_gpu_memory()
     setup_output_dir()
     
@@ -236,18 +217,16 @@ def main():
         low_cpu_mem_usage=True
     )
     
-    print(f"✓ Model loaded successfully")
+    print(f"Model loaded successfully")
     print_gpu_memory()
     
     # Load Sentence Transformer
     print("\n3. LOADING SENTENCE TRANSFORMER")
-    print("-" * 80)
     sim_model = SentenceTransformer(SENTIMENT_MODEL)
-    print("✓ Sentence transformer loaded")
+    print("Sentence transformer loaded")
     
     # Load Dataset
     print("\n4. LOADING DATASET")
-    print("-" * 80)
     
     try:
         dataset = load_dataset("detection-datasets/coco", split=f"val[:{NUM_IMAGES}]")
@@ -261,7 +240,6 @@ def main():
     
     # Process images
     print("\n5. PROCESSING IMAGES")
-    print("=" * 80)
     
     all_results = []
     
@@ -280,7 +258,6 @@ def main():
     
     # Save results to CSV
     print("\n6. SAVING RESULTS")
-    print("=" * 80)
     
     csv_path = os.path.join(OUTPUT_DIR, f"{timestamp}_{CSV_FILE}")
     
@@ -299,7 +276,6 @@ def main():
     
     # Calculate statistics
     print("\n7. DECAY ANALYSIS")
-    print("=" * 80)
     
     # Group by iteration
     by_iteration = {}
@@ -313,7 +289,6 @@ def main():
     if by_iteration:
         print("\nAverage Metrics by Iteration:")
         print(f"{'Iter':<6} {'Sim→Orig':<10} {'Sim→Prev':<10} {'BERT-F1':<10} {'Jaccard':<10} {'Retention':<10}")
-        print("-" * 70)
         
         for iter_num in sorted(by_iteration.keys()):
             results = by_iteration[iter_num]
@@ -352,9 +327,7 @@ def main():
         for r in stable_results:
             print(f"  Image {r['image_id']}: {r['similarity_to_original']:.3f}")
     
-    print("\n" + "="*80)
     print("MULTI-ITERATION PROCESSING COMPLETE")
-    print("="*80)
     print(f"\nOutputs saved to: {OUTPUT_DIR}/")
     print(f"CSV results: {csv_path}")
     print(f"\nTotal iterations completed: {len(all_results)}")
