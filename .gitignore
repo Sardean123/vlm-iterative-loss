@@ -1,0 +1,25 @@
+# API keys and secrets
+.env
+*.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+EOF
