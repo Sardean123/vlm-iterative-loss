@@ -1,0 +1,15 @@
+Image Captioning & Generation Pipeline Results
+Timestamp: 20251104_013419
+================================================================================
+
+Caption 1 (from original image):
+The image depicts a cozy living room with a dining table in the center. The table is surrounded by several chairs, with some placed closer to the table and others further away. A woman is standing near the table, possibly preparing to sit down.
+
+In the room, there is a TV mounted on the wall, and a clock can be seen hanging on the wall as well. A potted plant is placed near the table, adding a touch of greenery
+
+Caption 2 (from generated image):
+The image depicts a cozy living room with a dining table in the center. The table is surrounded by several chairs, with some placed closer to the table and others further away. A woman is standing near the table, possibly preparing to sit down.
+
+In the room, there is a TV mounted on the wall, and a clock can be seen hanging on the wall as well. A potted plant is placed near the table, adding a touch of greenery
+
+Semantic Similarity: 1.000
