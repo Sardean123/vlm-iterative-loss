@@ -65,7 +65,7 @@ def calculate_detailed_metrics(caption_original, caption_current):
         print(f"    Warning: BERTScore failed: {e}")
         bert_f1 = 0.0
     
-    # 2. Jaccard similarity (lexical overlap)
+    # 2. Jaccard similarity 
     words_orig = set(re.findall(r'\w+', caption_original.lower()))
     words_curr = set(re.findall(r'\w+', caption_current.lower()))
     jaccard = len(words_orig & words_curr) / len(words_orig | words_curr) if (words_orig | words_curr) else 0
@@ -73,17 +73,10 @@ def calculate_detailed_metrics(caption_original, caption_current):
     # 3. Length ratio (compression indicator)
     length_ratio = len(caption_current) / len(caption_original) if len(caption_original) > 0 else 0
     
-    # 4. Word retention (simple approximation of noun/entity preservation)
-    # Keep only words longer than 3 chars (heuristic for content words)
-    content_orig = set(w for w in words_orig if len(w) > 3)
-    content_curr = set(w for w in words_curr if len(w) > 3)
-    word_retention = len(content_orig & content_curr) / len(content_orig) if content_orig else 0
-    
     return {
         'bert_f1': bert_f1,
         'jaccard': jaccard,
-        'length_ratio': length_ratio,
-        'word_retention': word_retention
+        'length_ratio': length_ratio
     }
 
 # MAIN PIPELINE
@@ -93,6 +86,10 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
     iteration_results = []
     current_image = image
     original_caption = None
+    original_embedding = None
+    original_embedding_norm = None
+    prev_embedding = None
+    prev_embedding_norm = None
     
     for iteration in range(num_iterations):
         print(f"    Iteration {iteration + 1}/{num_iterations}")
@@ -106,7 +103,6 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             'bert_f1': None,
             'jaccard': None,
             'length_ratio': None,
-            'word_retention': None,
             'error': None
         }
         
@@ -141,21 +137,26 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             clear_memory()
             
             # Calculate semantic similarity
-            emb_original = sim_model.encode(original_caption)
             emb_current = sim_model.encode(caption)
-            sim_to_original = float((emb_original @ emb_current) / 
-                                   (np.linalg.norm(emb_original) * np.linalg.norm(emb_current)))
-            result['similarity_to_original'] = sim_to_original
-            
-            # Calculate similarity to previous iteration
-            if iteration > 0:
-                prev_caption = iteration_results[-1]['caption']
-                emb_prev = sim_model.encode(prev_caption)
-                sim_to_prev = float((emb_prev @ emb_current) / 
-                                   (np.linalg.norm(emb_prev) * np.linalg.norm(emb_current)))
-                result['similarity_to_previous'] = sim_to_prev
+            emb_current_norm = np.linalg.norm(emb_current)
+            if original_embedding is None:
+                original_embedding = emb_current
+                original_embedding_norm = emb_current_norm
+                sim_to_original = 1.0
             else:
+                denom = original_embedding_norm * emb_current_norm
+                sim_to_original = float((original_embedding @ emb_current) / denom) if denom else 0.0
+            result['similarity_to_original'] = sim_to_original
+
+            if prev_embedding is None:
                 result['similarity_to_previous'] = 1.0
+            else:
+                denom_prev = prev_embedding_norm * emb_current_norm
+                sim_to_prev = float((prev_embedding @ emb_current) / denom_prev) if denom_prev else 0.0
+                result['similarity_to_previous'] = sim_to_prev
+
+            prev_embedding = emb_current
+            prev_embedding_norm = emb_current_norm
             
             # Calculate detailed metrics
             metrics = calculate_detailed_metrics(original_caption, caption)
@@ -264,7 +265,7 @@ def main():
     fieldnames = [
         'image_id', 'iteration', 'caption', 
         'similarity_to_original', 'similarity_to_previous',
-        'bert_f1', 'jaccard', 'length_ratio', 'word_retention', 'error'
+        'bert_f1', 'jaccard', 'length_ratio', 'error'
     ]
     
     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
@@ -288,17 +289,16 @@ def main():
     
     if by_iteration:
         print("\nAverage Metrics by Iteration:")
-        print(f"{'Iter':<6} {'Sim→Orig':<10} {'Sim→Prev':<10} {'BERT-F1':<10} {'Jaccard':<10} {'Retention':<10}")
+        print(f"{'Iter':<6} {'Sim→Orig':<10} {'Sim→Prev':<10} {'BERT-F1':<10} {'Jaccard':<10}")
         
         for iter_num in sorted(by_iteration.keys()):
             results = by_iteration[iter_num]
             avg_sim_orig = np.mean([r['similarity_to_original'] for r in results])
-            avg_sim_prev = np.mean([r['similarity_to_previous'] for r in results if r['similarity_to_previous']])
-            avg_bert = np.mean([r['bert_f1'] for r in results if r['bert_f1']])
-            avg_jaccard = np.mean([r['jaccard'] for r in results if r['jaccard']])
-            avg_retention = np.mean([r['word_retention'] for r in results if r['word_retention']])
+            avg_sim_prev = np.mean([r['similarity_to_previous'] for r in results if r['similarity_to_previous'] is not None])
+            avg_bert = np.mean([r['bert_f1'] for r in results if r['bert_f1'] is not None])
+            avg_jaccard = np.mean([r['jaccard'] for r in results if r['jaccard'] is not None])
             
-            print(f"{iter_num:<6} {avg_sim_orig:<10.3f} {avg_sim_prev:<10.3f} {avg_bert:<10.3f} {avg_jaccard:<10.3f} {avg_retention:<10.3f}")
+            print(f"{iter_num:<6} {avg_sim_orig:<10.3f} {avg_sim_prev:<10.3f} {avg_bert:<10.3f} {avg_jaccard:<10.3f}")
         
         # Calculate decay rate
         if len(by_iteration) >= 2:
