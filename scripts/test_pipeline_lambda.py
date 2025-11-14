@@ -57,7 +57,7 @@ def setup_output_dir():
 def calculate_detailed_metrics(caption_original, caption_current):
     """Calculate multiple fine-grained metrics"""
     
-    # 1. BERTScore (better than sentence-BERT for details)
+    # 1. BERTScore
     try:
         P, R, F1 = bert_score([caption_current], [caption_original], lang="en", verbose=False)
         bert_f1 = float(F1[0])
