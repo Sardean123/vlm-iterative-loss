@@ -2,15 +2,15 @@
 
 Example:
     python scripts/visualize_decay.py \
-        --results_csv output_images_multi_iter/20251104_020425_iteration_results.csv \
-        --images_dir output_images_multi_iter \
+        --results_csv experiments/multi_iter_lambda/20251104_020425_iter10_img050/20251104_020425_iter10_img050_iteration_results.csv \
         --image_id 33
 """
 
 import argparse
 import csv
+import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 
@@ -28,6 +28,7 @@ def load_results(csv_path: Path) -> List[Dict[str, float]]:
                 'bert_f1': float(row['bert_f1']) if row['bert_f1'] else None,
                 'jaccard': float(row['jaccard']) if row['jaccard'] else None,
                 'length_ratio': float(row['length_ratio']) if row['length_ratio'] else None,
+                'caption': row['caption'],
             }
             rows.append(converted)
     return rows
@@ -76,25 +77,29 @@ def plot_metric(rows: List[Dict[str, float]], metric: str, highlight_id: Optiona
     fig.tight_layout()
 
 
-def show_image_sequence(images_dir: Path, csv_path: Path, image_id: int, max_iteration: int) -> None:
-    prefix = csv_path.stem.split('_iteration_results')[0]
-    fig, axes = plt.subplots(1, max_iteration, figsize=(4 * max_iteration, 4))
-    if max_iteration == 1:
+def show_image_sequence(images_dir: Path, prefix: str, image_id: int, entries: List[Dict[str, Any]]) -> None:
+    entries = sorted(entries, key=lambda r: r['iteration'])
+    num_iters = max(r['iteration'] for r in entries)
+    fig, axes = plt.subplots(1, num_iters, figsize=(4 * num_iters, 5.5))
+    if num_iters == 1:
         axes = [axes]
 
-    for iteration in range(max_iteration):
-        if iteration == 0:
+    for entry in entries:
+        iteration_idx = entry['iteration'] - 1
+        if iteration_idx == 0:
             name = f"{prefix}_img{image_id:03d}_iter0_original.png"
+            title = 'Original'
         else:
-            name = f"{prefix}_img{image_id:03d}_iter{iteration}_generated.png"
+            name = f"{prefix}_img{image_id:03d}_iter{iteration_idx}_generated.png"
+            title = f'Iter {iteration_idx}'
+
+        ax = axes[iteration_idx]
+        ax.axis('off')
         img_path = images_dir / name
-        axes[iteration].axis('off')
         if img_path.exists():
-            axes[iteration].imshow(plt.imread(img_path))
-            title = 'Original' if iteration == 0 else f'Iter {iteration}'
-            axes[iteration].set_title(title)
-        else:
-            axes[iteration].set_title(f'Missing: {name}')
+            ax.imshow(plt.imread(img_path))
+        ax.set_title(title)
+
     fig.suptitle(f'Image {image_id} progression')
     fig.tight_layout()
 
@@ -102,19 +107,32 @@ def show_image_sequence(images_dir: Path, csv_path: Path, image_id: int, max_ite
 def main() -> None:
     parser = argparse.ArgumentParser(description='Plot decay metrics and image sequences.')
     parser.add_argument('--results_csv', required=True, type=Path, help='Path to iteration_results.csv')
-    parser.add_argument('--images_dir', required=True, type=Path, help='Directory containing saved images')
+    parser.add_argument('--images_dir', type=Path, help='Directory containing saved images (defaults to run_dir/images)')
     parser.add_argument('--image_id', type=int, help='Optional image id to visualize side-by-side')
     args = parser.parse_args()
 
     rows = load_results(args.results_csv)
+    metadata_path = args.results_csv.parent / 'metadata.json'
+    metadata: Optional[Dict[str, Any]] = None
+    if metadata_path.exists():
+        with metadata_path.open() as f:
+            metadata = json.load(f)
+
+    images_dir = args.images_dir or (args.results_csv.parent / 'images')
     metrics = ['similarity_to_original', 'similarity_to_previous', 'bert_f1', 'jaccard', 'length_ratio']
     highlight_id = args.image_id if args.image_id is not None else None
+    by_image = _group_by(rows, 'image_id')
     for metric in metrics:
         plot_metric(rows, metric, highlight_id=highlight_id)
 
-    if highlight_id is not None:
-        max_iteration = max(r['iteration'] for r in rows)
-        show_image_sequence(args.images_dir, args.results_csv, highlight_id, max_iteration)
+    if highlight_id is not None and highlight_id in by_image:
+        prefix = metadata['run_name'] if metadata and metadata.get('run_name') else args.results_csv.stem.split('_iteration_results')[0]
+        show_image_sequence(
+            images_dir,
+            prefix,
+            highlight_id,
+            by_image[highlight_id],
+        )
 
     plt.show()
 
