@@ -1,0 +1,152 @@
+{
+  "run_name": "20251115_200033_iter10_img050",
+  "timestamp": "20251115_200033",
+  "config": {
+    "model_id": "llava-hf/llava-1.5-7b-hf",
+    "sentence_transformer": "all-MiniLM-L6-v2",
+    "max_new_tokens": 200,
+    "num_iterations": 10,
+    "num_images_requested": 50,
+    "sdxl_model_id": "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b"
+  },
+  "dataset": {
+    "name": "detection-datasets/coco",
+    "split": "val[:50]",
+    "num_loaded": 50
+  },
+  "paths": {
+    "run_dir": "/home/ubuntu/vlm-iterative-loss/experiments/multi_iter_lambda/20251115_200033_iter10_img050",
+    "images_dir": "/home/ubuntu/vlm-iterative-loss/experiments/multi_iter_lambda/20251115_200033_iter10_img050/images",
+    "plots_dir": "/home/ubuntu/vlm-iterative-loss/experiments/multi_iter_lambda/20251115_200033_iter10_img050/plots",
+    "results_csv": "/home/ubuntu/vlm-iterative-loss/experiments/multi_iter_lambda/20251115_200033_iter10_img050/20251115_200033_iter10_img050_iteration_results.csv"
+  },
+  "results": {
+    "rows_saved": 480,
+    "iteration_summary": [
+      {
+        "iteration": 1,
+        "similarity_to_original_mean": 1.0,
+        "similarity_to_previous_mean": 1.0,
+        "bert_f1_mean": 0.9999999875823656,
+        "jaccard_mean": 1.0
+      },
+      {
+        "iteration": 2,
+        "similarity_to_original_mean": 0.8457729443907738,
+        "similarity_to_previous_mean": 0.8457729443907738,
+        "bert_f1_mean": 0.9206483860810598,
+        "jaccard_mean": 0.38865886891833873
+      },
+      {
+        "iteration": 3,
+        "similarity_to_original_mean": 0.7970194518566132,
+        "similarity_to_previous_mean": 0.8866214727361997,
+        "bert_f1_mean": 0.911253459751606,
+        "jaccard_mean": 0.3273891888190332
+      },
+      {
+        "iteration": 4,
+        "similarity_to_original_mean": 0.7792547754943371,
+        "similarity_to_previous_mean": 0.911218690375487,
+        "bert_f1_mean": 0.9099283665418625,
+        "jaccard_mean": 0.31369964549543
+      },
+      {
+        "iteration": 5,
+        "similarity_to_original_mean": 0.756737936909,
+        "similarity_to_previous_mean": 0.8974983294804891,
+        "bert_f1_mean": 0.9069577467938265,
+        "jaccard_mean": 0.304367474229064
+      },
+      {
+        "iteration": 6,
+        "similarity_to_original_mean": 0.7487533303598563,
+        "similarity_to_previous_mean": 0.9101425223052502,
+        "bert_f1_mean": 0.9056753168503443,
+        "jaccard_mean": 0.29810370408616
+      },
+      {
+        "iteration": 7,
+        "similarity_to_original_mean": 0.7393160009135803,
+        "similarity_to_previous_mean": 0.9016212858259678,
+        "bert_f1_mean": 0.9035534473756949,
+        "jaccard_mean": 0.2820087911091787
+      },
+      {
+        "iteration": 8,
+        "similarity_to_original_mean": 0.7202337458729744,
+        "similarity_to_previous_mean": 0.9049361025293668,
+        "bert_f1_mean": 0.902844445159038,
+        "jaccard_mean": 0.2848346015873012
+      },
+      {
+        "iteration": 9,
+        "similarity_to_original_mean": 0.7128360451509556,
+        "similarity_to_previous_mean": 0.9038974617918333,
+        "bert_f1_mean": 0.9053269550204277,
+        "jaccard_mean": 0.2866912564467363
+      },
+      {
+        "iteration": 10,
+        "similarity_to_original_mean": 0.70387495867908,
+        "similarity_to_previous_mean": 0.9117661155760288,
+        "bert_f1_mean": 0.9039223194122314,
+        "jaccard_mean": 0.28205757848220686
+      }
+    ],
+    "decay_stats": {
+      "initial_similarity": 1.0,
+      "final_similarity": 0.70387495867908,
+      "total_decay": 0.29612504132092,
+      "avg_decay_per_iteration": 0.03290278236899111,
+      "last_iteration": 10
+    },
+    "fastest_degrading": [
+      {
+        "image_id": 39,
+        "similarity_to_original": 0.27932414412498474
+      },
+      {
+        "image_id": 12,
+        "similarity_to_original": 0.4279699921607971
+      },
+      {
+        "image_id": 24,
+        "similarity_to_original": 0.48735690116882324
+      },
+      {
+        "image_id": 4,
+        "similarity_to_original": 0.5372270345687866
+      },
+      {
+        "image_id": 33,
+        "similarity_to_original": 0.5860928893089294
+      }
+    ],
+    "most_stable": [
+      {
+        "image_id": 46,
+        "similarity_to_original": 0.9389644861221313
+      },
+      {
+        "image_id": 2,
+        "similarity_to_original": 0.9321790933609009
+      },
+      {
+        "image_id": 3,
+        "similarity_to_original": 0.8704983592033386
+      },
+      {
+        "image_id": 25,
+        "similarity_to_original": 0.8572564125061035
+      },
+      {
+        "image_id": 42,
+        "similarity_to_original": 0.8422247171401978
+      }
+    ]
+  },
+  "generated_plots": [
+    "/home/ubuntu/vlm-iterative-loss/experiments/multi_iter_lambda/20251115_200033_iter10_img050/plots/20251115_200033_iter10_img050_iteration_results_overall_metrics.png"
+  ]
+}

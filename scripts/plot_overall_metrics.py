@@ -2,8 +2,9 @@
 
 import argparse
 import csv
+import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 
@@ -87,21 +88,45 @@ def plot_dataset_means(rows: List[Dict[str, float]], output_path: Path, show: bo
 
     fig.suptitle('Dataset-Level Metric Trends')
     fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=200)
     if show:
         plt.show()
 
 
+def resolve_output_path(results_csv: Path, output_arg: Optional[Path]) -> Path:
+    if output_arg is not None:
+        return output_arg
+    default_dir = results_csv.parent / 'plots'
+    return default_dir / f"{results_csv.stem}_overall_metrics.png"
+
+
+def update_metadata(results_csv: Path, plot_path: Path) -> None:
+    metadata_path = results_csv.parent / 'metadata.json'
+    if not metadata_path.exists():
+        return
+    with metadata_path.open() as f:
+        data = json.load(f)
+    plots = data.setdefault('generated_plots', [])
+    plot_str = str(plot_path.resolve())
+    if plot_str not in plots:
+        plots.append(plot_str)
+        with metadata_path.open('w') as f:
+            json.dump(data, f, indent=2)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Plot dataset-level metric trends on one canvas.')
     parser.add_argument('--results_csv', required=True, type=Path, help='Path to iteration_results.csv')
-    parser.add_argument('--output', type=Path, default=Path('overall_metrics.png'), help='Where to save the figure')
+    parser.add_argument('--output', type=Path, help='Where to save the figure (defaults to run_dir/plots)')
     parser.add_argument('--show', action='store_true', help='Also display the figure interactively')
     args = parser.parse_args()
 
     rows = load_rows(args.results_csv)
-    plot_dataset_means(rows, args.output, args.show)
-    print(f'Saved plot to {args.output}')
+    output_path = resolve_output_path(args.results_csv, args.output)
+    plot_dataset_means(rows, output_path, args.show)
+    update_metadata(args.results_csv, output_path)
+    print(f'Saved plot to {output_path}')
 
 
 if __name__ == '__main__':
