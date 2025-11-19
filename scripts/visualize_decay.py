@@ -9,8 +9,9 @@ Example:
 import argparse
 import csv
 import json
+from math import ceil
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
@@ -82,12 +83,30 @@ def plot_metric(rows: List[Dict[str, float]], metric: str, highlight_id: Optiona
     fig.tight_layout()
 
 
-def show_image_sequence(images_dir: Path, prefix: str, image_id: int, entries: List[Dict[str, Any]]) -> None:
+def show_image_sequence(
+    images_dir: Path,
+    prefix: str,
+    image_id: int,
+    entries: List[Dict[str, Any]],
+    max_cols: int = 5,
+    width_per_col: float = 2.8,
+    height_per_row: float = 3.0,
+) -> None:
     entries = sorted(entries, key=lambda r: r['iteration'])
     num_iters = max(r['iteration'] for r in entries)
-    fig, axes = plt.subplots(1, num_iters, figsize=(4 * num_iters, 5.5))
-    if num_iters == 1:
-        axes = [axes]
+    max_cols = max(1, max_cols)
+    ncols = min(num_iters, max_cols)
+    nrows = ceil(num_iters / ncols)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(width_per_col * ncols, height_per_row * nrows),
+    )
+    # Flatten axes for easier indexing regardless of grid shape
+    if isinstance(axes, plt.Axes):
+        axes_list = [axes]
+    else:
+        axes_list = axes.flatten().tolist()
 
     for entry in entries:
         iteration_idx = entry['iteration'] - 1
@@ -98,15 +117,18 @@ def show_image_sequence(images_dir: Path, prefix: str, image_id: int, entries: L
             name = f"{prefix}_img{image_id:03d}_iter{iteration_idx}_generated.png"
             title = f'Iter {iteration_idx}'
 
-        ax = axes[iteration_idx]
+        ax = axes_list[iteration_idx]
         ax.axis('off')
         img_path = images_dir / name
         if img_path.exists():
             ax.imshow(plt.imread(img_path))
-        ax.set_title(title)
+        ax.set_title(title, fontsize=10, pad=6, wrap=True)
 
-    fig.suptitle(f'Image {image_id} progression')
-    fig.tight_layout()
+    for ax in axes_list[num_iters:]:
+        ax.axis('off')
+
+    fig.suptitle(f'Image {image_id} progression', fontsize=14)
+    fig.subplots_adjust(top=0.92, hspace=0.5, wspace=0.1)
 
 
 def main() -> None:
@@ -114,6 +136,15 @@ def main() -> None:
     parser.add_argument('--results_csv', required=True, type=Path, help='Path to iteration_results.csv')
     parser.add_argument('--images_dir', type=Path, help='Directory containing saved images (defaults to run_dir/images)')
     parser.add_argument('--image_id', type=int, help='Optional image id to visualize side-by-side')
+    parser.add_argument('--image_grid_cols', type=int, default=5, help='Max columns when plotting an image sequence grid')
+    parser.add_argument(
+        '--image_subplot_size',
+        type=float,
+        nargs=2,
+        metavar=('WIDTH', 'HEIGHT'),
+        default=(2.8, 3.0),
+        help='Size in inches (width height) for each subplot in the image sequence grid',
+    )
     args = parser.parse_args()
 
     rows = load_results(args.results_csv)
@@ -142,11 +173,15 @@ def main() -> None:
 
     if highlight_id is not None and highlight_id in by_image:
         prefix = metadata['run_name'] if metadata and metadata.get('run_name') else args.results_csv.stem.split('_iteration_results')[0]
+        subplot_w, subplot_h = tuple(args.image_subplot_size)
         show_image_sequence(
             images_dir,
             prefix,
             highlight_id,
             by_image[highlight_id],
+            max_cols=args.image_grid_cols,
+            width_per_col=subplot_w,
+            height_per_row=subplot_h,
         )
 
     plt.show()
