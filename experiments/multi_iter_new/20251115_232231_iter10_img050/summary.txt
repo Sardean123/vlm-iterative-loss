@@ -1,0 +1,33 @@
+Attractor Analysis Summary
+==============================
+
+ATTRACTOR CLASSIFICATION
+Converged Fixed: 4 (8.3%)
+Converged Cycle: 1 (2.1%)
+Still Moving: 43 (89.6%)
+
+CONVERGENCE ANALYSIS
+Mean convergence iteration: 7.80
+Median convergence iteration: 8.00
+Std. dev. convergence iteration: 0.40
+
+Lowest final similarity_to_original
+image_id=39 | similarity_to_original=0.2807
+image_id=12 | similarity_to_original=0.3764
+image_id=16 | similarity_to_original=0.4115
+image_id=43 | similarity_to_original=0.4769
+image_id=27 | similarity_to_original=0.4894
+
+Highest final similarity_to_original
+image_id=9 | similarity_to_original=0.9597
+image_id=46 | similarity_to_original=0.9357
+image_id=3 | similarity_to_original=0.9331
+image_id=25 | similarity_to_original=0.8922
+image_id=2 | similarity_to_original=0.8734
+
+Steepest log_prob decline (biggest information loss)
+image_id=16.0 | initial=-12.3627 | final=-13.0889 | decline=0.7262
+image_id=22.0 | initial=-12.6253 | final=-13.2823 | decline=0.6570
+image_id=31.0 | initial=-13.7237 | final=-14.1188 | decline=0.3951
+image_id=38.0 | initial=-13.5385 | final=-13.8811 | decline=0.3426
+image_id=26.0 | initial=-12.6432 | final=-12.9584 | decline=0.3152

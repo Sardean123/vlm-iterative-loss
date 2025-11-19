@@ -3,6 +3,7 @@
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -12,9 +13,13 @@ import matplotlib.pyplot as plt
 METRICS = [
     'similarity_to_original',
     'similarity_to_previous',
+    'vision_sim_to_original',
+    'vision_sim_to_previous',
     'bert_f1',
     'jaccard',
     'length_ratio',
+    'log_prob_original_caption',
+    'log_prob_caption_on_original_image',
 ]
 
 
@@ -25,7 +30,7 @@ def load_rows(csv_path: Path) -> List[Dict[str, float]]:
         for row in reader:
             rows.append({
                 'iteration': int(row['iteration']),
-                **{m: float(row[m]) if row[m] else None for m in METRICS},
+                **{m: float(row[m]) if m in row and row[m] not in (None, '') else None for m in METRICS},
             })
     return rows
 
@@ -57,8 +62,10 @@ def compute_stats(rows: List[Dict[str, float]], metric: str) -> Dict[int, Dict[s
 
 
 def plot_dataset_means(rows: List[Dict[str, float]], output_path: Path, show: bool) -> None:
-    fig, axes = plt.subplots(2, 3, figsize=(12, 7))
-    axes_flat = axes.ravel()
+    cols = 3
+    rows_needed = math.ceil(len(METRICS) / cols)
+    fig, axes = plt.subplots(rows_needed, cols, figsize=(cols * 4, rows_needed * 3))
+    axes_flat = axes.ravel() if hasattr(axes, 'ravel') else [axes]
 
     last_iteration = max(r['iteration'] for r in rows)
 
@@ -83,8 +90,8 @@ def plot_dataset_means(rows: List[Dict[str, float]], output_path: Path, show: bo
         if idx == 0:
             ax.legend(loc='best')
 
-    if len(METRICS) < len(axes_flat):
-        axes_flat[-1].axis('off')
+    for idx in range(len(METRICS), len(axes_flat)):
+        axes_flat[idx].axis('off')
 
     fig.suptitle('Dataset-Level Metric Trends')
     fig.tight_layout()

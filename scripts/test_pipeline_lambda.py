@@ -31,14 +31,14 @@ SIM_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LLAVA_DO_SAMPLE = False  # keep decoding deterministic/greedy
 
 # Iteration configuration
-NUM_ITERATIONS = 10  # Number of caption->image->caption cycles
+NUM_ITERATIONS = 25  # Number of caption->image->caption cycles
 NUM_IMAGES = 50  # Number of images to process
 CONVERGENCE_WINDOW = 3
 CONVERGENCE_THRESHOLD = 0.99
 
 # Experiment/output configuration
 EXPERIMENTS_DIR = Path("experiments")
-PIPELINE_DIR = EXPERIMENTS_DIR / "multi_iter_new"
+PIPELINE_DIR = EXPERIMENTS_DIR / f"{NUM_ITERATIONS}_iter_11.18"
 SDXL_MODEL_ID = "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b"
 
 
@@ -184,12 +184,17 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
     
     iteration_results = []
     current_image = image
+    reference_image = image.copy()
     original_caption = None
     original_embedding = None
     original_embedding_norm = None
     prev_embedding = None
     prev_embedding_norm = None
     vision_embeddings: List[np.ndarray] = []
+    vision_original_embedding = None
+    vision_original_norm = None
+    vision_prev_embedding = None
+    vision_prev_norm = None
     
     for iteration in range(num_iterations):
         print(f"    Iteration {iteration + 1}/{num_iterations}")
@@ -204,7 +209,10 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             'jaccard': None,
             'length_ratio': None,
             'vision_embedding_norm': None,
+            'vision_sim_to_original': None,
+            'vision_sim_to_previous': None,
             'log_prob_original_caption': None,
+            'log_prob_caption_on_original_image': None,
             'converged': False,
             'convergence_iteration': -1,
             'attractor_type': "none",
@@ -224,7 +232,24 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             try:
                 vision_emb = get_vision_embedding(current_image, model, processor)
                 vision_embeddings.append(vision_emb)
-                result['vision_embedding_norm'] = float(np.linalg.norm(vision_emb))
+                vision_norm = np.linalg.norm(vision_emb)
+                result['vision_embedding_norm'] = float(vision_norm)
+                if vision_original_embedding is None:
+                    vision_original_embedding = vision_emb
+                    vision_original_norm = vision_norm
+                    result['vision_sim_to_original'] = 1.0
+                else:
+                    denom_orig = vision_original_norm * vision_norm
+                    sim_orig = float((vision_original_embedding @ vision_emb) / denom_orig) if denom_orig else 0.0
+                    result['vision_sim_to_original'] = sim_orig
+                if vision_prev_embedding is None:
+                    result['vision_sim_to_previous'] = 1.0
+                else:
+                    denom_prev = vision_prev_norm * vision_norm
+                    sim_prev = float((vision_prev_embedding @ vision_emb) / denom_prev) if denom_prev else 0.0
+                    result['vision_sim_to_previous'] = sim_prev
+                vision_prev_embedding = vision_emb
+                vision_prev_norm = vision_norm
                 added_vision_embedding = True
             except Exception as vision_error:
                 print(f"      Warning: vision embedding failed: {vision_error}")
@@ -267,10 +292,20 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             
             result['caption'] = caption
             print(f"      Caption: {caption[:60]}...")
-            
+
             # Store original caption
             if iteration == 0:
                 original_caption = caption
+
+            # Log probability of the current caption if conditioned on the original image
+            try:
+                log_prob_caption_on_orig = compute_caption_log_prob(reference_image, caption, model, processor)
+                result['log_prob_caption_on_original_image'] = log_prob_caption_on_orig
+                print(f"      Log P(caption | original_image): {log_prob_caption_on_orig:.3f}")
+            except Exception as caption_logprob_error:
+                print(f"      Warning: reverse log-prob failed: {caption_logprob_error}")
+            finally:
+                clear_memory()
             
             # Clear memory
             del inputs, output
@@ -422,7 +457,9 @@ def main():
         'image_id', 'iteration', 'caption',
         'similarity_to_original', 'similarity_to_previous',
         'bert_f1', 'jaccard', 'length_ratio',
-        'vision_embedding_norm', 'log_prob_original_caption',
+        'vision_embedding_norm', 'vision_sim_to_original', 'vision_sim_to_previous',
+        'log_prob_original_caption',
+        'log_prob_caption_on_original_image',
         'converged', 'convergence_iteration', 'attractor_type',
         'error'
     ]

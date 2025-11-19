@@ -28,6 +28,11 @@ def load_results(csv_path: Path) -> List[Dict[str, float]]:
                 'bert_f1': float(row['bert_f1']) if row['bert_f1'] else None,
                 'jaccard': float(row['jaccard']) if row['jaccard'] else None,
                 'length_ratio': float(row['length_ratio']) if row['length_ratio'] else None,
+                'vision_embedding_norm': float(row['vision_embedding_norm']) if row.get('vision_embedding_norm') else None,
+                'vision_sim_to_original': float(row['vision_sim_to_original']) if row.get('vision_sim_to_original') else None,
+                'vision_sim_to_previous': float(row['vision_sim_to_previous']) if row.get('vision_sim_to_previous') else None,
+                'log_prob_original_caption': float(row['log_prob_original_caption']) if row.get('log_prob_original_caption') else None,
+                'log_prob_caption_on_original_image': float(row['log_prob_caption_on_original_image']) if row.get('log_prob_caption_on_original_image') else None,
                 'caption': row['caption'],
             }
             rows.append(converted)
@@ -119,7 +124,17 @@ def main() -> None:
             metadata = json.load(f)
 
     images_dir = args.images_dir or (args.results_csv.parent / 'images')
-    metrics = ['similarity_to_original', 'similarity_to_previous', 'bert_f1', 'jaccard', 'length_ratio']
+    metrics = [
+        'similarity_to_original',
+        'similarity_to_previous',
+        'vision_sim_to_original',
+        'vision_sim_to_previous',
+        'bert_f1',
+        'jaccard',
+        'length_ratio',
+        'log_prob_original_caption',
+        'log_prob_caption_on_original_image',
+    ]
     highlight_id = args.image_id if args.image_id is not None else None
     by_image = _group_by(rows, 'image_id')
     for metric in metrics:
