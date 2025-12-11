@@ -34,7 +34,7 @@ LLAVA_DO_SAMPLE = False  # keep decoding deterministic/greedy
 NUM_ITERATIONS = 25  # Number of caption->image->caption cycles
 NUM_IMAGES = 50  # Number of images to process
 CONVERGENCE_WINDOW = 3
-CONVERGENCE_THRESHOLD = 0.99
+CONVERGENCE_THRESHOLD = 0.95
 
 # Experiment/output configuration
 EXPERIMENTS_DIR = Path("experiments")
