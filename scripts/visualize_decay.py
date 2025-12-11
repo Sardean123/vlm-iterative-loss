@@ -4,6 +4,8 @@ Example:
     python scripts/visualize_decay.py \
         --results_csv experiments/multi_iter_lambda/20251104_020425_iter10_img050/20251104_020425_iter10_img050_iteration_results.csv \
         --image_id 33
+
+Per-image plot folders are saved to run_dir/plots by default; pass --show to also open them.
 """
 
 import argparse
@@ -11,7 +13,7 @@ import csv
 import json
 from math import ceil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 
@@ -47,7 +49,7 @@ def _group_by(rows: List[Dict[str, float]], key: str) -> Dict[int, List[Dict[str
     return grouped
 
 
-def plot_metric(rows: List[Dict[str, float]], metric: str, highlight_id: Optional[int] = None) -> None:
+def plot_metric(rows: List[Dict[str, float]], metric: str, highlight_id: Optional[int] = None) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(6, 4))
     by_image = _group_by(rows, 'image_id')
     for image_id, entries in by_image.items():
@@ -81,6 +83,7 @@ def plot_metric(rows: List[Dict[str, float]], metric: str, highlight_id: Optiona
     ax.set_xticks(sorted(by_iter))
     ax.legend(loc='best')
     fig.tight_layout()
+    return fig
 
 
 def show_image_sequence(
@@ -91,7 +94,7 @@ def show_image_sequence(
     max_cols: int = 5,
     width_per_col: float = 2.8,
     height_per_row: float = 3.0,
-) -> None:
+) -> plt.Figure:
     entries = sorted(entries, key=lambda r: r['iteration'])
     num_iters = max(r['iteration'] for r in entries)
     max_cols = max(1, max_cols)
@@ -129,13 +132,43 @@ def show_image_sequence(
 
     fig.suptitle(f'Image {image_id} progression', fontsize=14)
     fig.subplots_adjust(top=0.92, hspace=0.5, wspace=0.1)
+    return fig
+
+
+def resolve_output_dir(results_csv: Path, output_dir: Optional[Path]) -> Path:
+    return output_dir or (results_csv.parent / 'plots')
+
+
+def save_figure(fig: plt.Figure, path: Path, close: bool = True) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=200, bbox_inches='tight')
+    if close:
+        plt.close(fig)
+
+
+def update_metadata(results_csv: Path, saved_paths: List[Path]) -> None:
+    metadata_path = results_csv.parent / 'metadata.json'
+    if not metadata_path.exists():
+        return
+    with metadata_path.open() as f:
+        data = json.load(f)
+    plots = data.setdefault('generated_plots', [])
+    changed = False
+    for path in saved_paths:
+        path_str = str(path.resolve())
+        if path_str not in plots:
+            plots.append(path_str)
+            changed = True
+    if changed:
+        with metadata_path.open('w') as f:
+            json.dump(data, f, indent=2)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Plot decay metrics and image sequences.')
     parser.add_argument('--results_csv', required=True, type=Path, help='Path to iteration_results.csv')
     parser.add_argument('--images_dir', type=Path, help='Directory containing saved images (defaults to run_dir/images)')
-    parser.add_argument('--image_id', type=int, help='Optional image id to visualize side-by-side')
+    parser.add_argument('--image_id', type=int, help='If provided, only export this image id (otherwise export all)')
     parser.add_argument('--image_grid_cols', type=int, default=5, help='Max columns when plotting an image sequence grid')
     parser.add_argument(
         '--image_subplot_size',
@@ -145,6 +178,8 @@ def main() -> None:
         default=(2.8, 3.0),
         help='Size in inches (width height) for each subplot in the image sequence grid',
     )
+    parser.add_argument('--output_dir', type=Path, help='Where to save generated plots (defaults to run_dir/plots)')
+    parser.add_argument('--show', action='store_true', help='Also display the figures interactively')
     args = parser.parse_args()
 
     rows = load_results(args.results_csv)
@@ -154,6 +189,7 @@ def main() -> None:
         with metadata_path.open() as f:
             metadata = json.load(f)
 
+    output_dir = resolve_output_dir(args.results_csv, args.output_dir)
     images_dir = args.images_dir or (args.results_csv.parent / 'images')
     metrics = [
         'similarity_to_original',
@@ -166,25 +202,46 @@ def main() -> None:
         'log_prob_original_caption',
         'log_prob_caption_on_original_image',
     ]
-    highlight_id = args.image_id if args.image_id is not None else None
     by_image = _group_by(rows, 'image_id')
-    for metric in metrics:
-        plot_metric(rows, metric, highlight_id=highlight_id)
+    plot_paths: List[Path] = []
+    asset_paths: List[Path] = []
+    prefix = metadata['run_name'] if metadata and metadata.get('run_name') else args.results_csv.stem.split('_iteration_results')[0]
+    close_figs = not args.show
 
-    if highlight_id is not None and highlight_id in by_image:
-        prefix = metadata['run_name'] if metadata and metadata.get('run_name') else args.results_csv.stem.split('_iteration_results')[0]
-        subplot_w, subplot_h = tuple(args.image_subplot_size)
-        show_image_sequence(
+    # Per-image exports
+    subplot_w, subplot_h = tuple(args.image_subplot_size)
+    export_ids = [args.image_id] if args.image_id is not None else sorted(by_image)
+    for image_id in export_ids:
+        if image_id not in by_image:
+            continue
+        image_dir = output_dir / f"image_{image_id:03d}"
+        for metric in metrics:
+            fig = plot_metric(rows, metric, highlight_id=image_id)
+            metric_path = image_dir / f"{prefix}_img{image_id:03d}_{metric}.png"
+            save_figure(fig, metric_path, close=close_figs)
+            plot_paths.append(metric_path)
+            asset_paths.append(metric_path)
+
+        fig = show_image_sequence(
             images_dir,
             prefix,
-            highlight_id,
-            by_image[highlight_id],
+            image_id,
+            by_image[image_id],
             max_cols=args.image_grid_cols,
             width_per_col=subplot_w,
             height_per_row=subplot_h,
         )
+        image_seq_path = image_dir / f"{prefix}_img{image_id:03d}_sequence.png"
+        save_figure(fig, image_seq_path, close=close_figs)
+        plot_paths.append(image_seq_path)
+        asset_paths.append(image_seq_path)
 
-    plt.show()
+    if args.show:
+        plt.show()
+    plt.close('all')
+
+    update_metadata(args.results_csv, plot_paths)
+    print(f"Saved {len(asset_paths)} asset(s) to {output_dir}")
 
 
 if __name__ == '__main__':
