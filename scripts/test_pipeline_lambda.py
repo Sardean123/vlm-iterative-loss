@@ -4,13 +4,12 @@ import csv
 import json
 import torch
 import numpy as np
-import requests
 from PIL import Image
-from transformers import LlavaProcessor, LlavaForConditionalGeneration
+from transformers import LlavaProcessor, LlavaForConditionalGeneration, CLIPProcessor, CLIPModel
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from bert_score import score as bert_score
-import replicate
+from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from datetime import datetime
 from pathlib import Path
 import re
@@ -18,28 +17,28 @@ from typing import List, Tuple
 
 
 # CONFIG
-REPLICATE_API_TOKEN = os.environ.get('REPLICATE_API_TOKEN')
-if not REPLICATE_API_TOKEN:
-    raise ValueError("REPLICATE_API_TOKEN not found in environment variables")
-os.environ['REPLICATE_API_TOKEN'] = REPLICATE_API_TOKEN
-
 # Model configuration
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 SENTIMENT_MODEL = 'all-MiniLM-L6-v2'
 MAX_NEW_TOKENS = 200
 SIM_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CLIP_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LLAVA_DO_SAMPLE = False  # keep decoding deterministic/greedy
 
 # Iteration configuration
-NUM_ITERATIONS = 25  # Number of caption->image->caption cycles
-NUM_IMAGES = 50  # Number of images to process
+NUM_ITERATIONS = 10  # Number of caption->image->caption cycles
+NUM_IMAGES = 500  # Number of images to process
 CONVERGENCE_WINDOW = 3
 CONVERGENCE_THRESHOLD = 0.95
+CHECKPOINT_INTERVAL = 25  # Save CLIP embedding checkpoints every N images
 
 # Experiment/output configuration
 EXPERIMENTS_DIR = Path("experiments")
-PIPELINE_DIR = EXPERIMENTS_DIR / f"{NUM_ITERATIONS}_iter_11.18"
-SDXL_MODEL_ID = "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b"
+PIPELINE_DIR = EXPERIMENTS_DIR / f"{NUM_ITERATIONS}_iter_12.17"
+SD_MODEL_ID = "runwayml/stable-diffusion-v1-5"
+SD_INFERENCE_STEPS = 30
+SD_GUIDANCE_SCALE = 7.5
+CLIP_MODEL_ID = "openai/clip-vit-large-patch14"
 
 
 # UTILITY FUNCTIONS
@@ -178,8 +177,86 @@ def compute_caption_log_prob(image: Image.Image, caption: str, model: LlavaForCo
     del inputs, outputs
     return log_prob
 
+def get_clip_embedding(image: Image.Image, clip_model: CLIPModel, clip_processor: CLIPProcessor, device: str = CLIP_DEVICE) -> np.ndarray:
+    """
+    Compute a normalized CLIP ViT-L/14 image embedding.
+    """
+    inputs = clip_processor(images=image, return_tensors="pt")
+    pixel_values = inputs["pixel_values"].to(device=device, dtype=next(clip_model.parameters()).dtype)
+    with torch.no_grad():
+        image_features = clip_model.get_image_features(pixel_values=pixel_values)
+    # Normalize to unit length for cosine distance consistency
+    image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
+    embedding = image_features.squeeze(0).float().cpu().numpy()
+    del inputs, pixel_values, image_features
+    return embedding
+
+
+def load_sd_pipeline(device: str = "cuda") -> StableDiffusionPipeline:
+    """
+    Load SD 1.5 pipeline with a fast scheduler.
+    """
+    pipe = StableDiffusionPipeline.from_pretrained(
+        SD_MODEL_ID,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        safety_checker=None,
+    )
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+    if hasattr(pipe, "enable_xformers_memory_efficient_attention"):
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+        except Exception as e:
+            print(f"      Warning: xFormers attention not enabled ({e})")
+    pipe = pipe.to(device)
+    pipe.set_progress_bar_config(disable=True)
+    return pipe
+
+
+def save_embeddings_checkpoint(
+    run_dir: Path,
+    batch_start: int,
+    batch_end: int,
+    embeddings_by_iter: dict,
+    image_ids: list,
+    metadata: dict,
+) -> Path:
+    """
+    Save per-iteration CLIP embeddings for a batch of images to an NPZ checkpoint.
+    """
+    stacked = {}
+    for iter_idx, emb_list in embeddings_by_iter.items():
+        if emb_list:
+            stacked[iter_idx] = np.stack(emb_list, axis=0)
+    if not stacked:
+        print(f"      Skipping checkpoint {batch_start}-{batch_end}: no embeddings to save")
+        return None  # type: ignore
+
+    checkpoint_path = run_dir / f"checkpoint_imgs{batch_start}-{batch_end}.npz"
+    np.savez(
+        checkpoint_path,
+        embeddings_by_iter=stacked,
+        image_ids=np.array(image_ids, dtype=np.int32),
+        metadata=metadata,
+    )
+    print(f"✓ Saved checkpoint: {checkpoint_path}")
+    return checkpoint_path
+
 # MAIN PIPELINE
-def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt, timestamp, num_iterations, images_dir: Path, file_prefix: str):
+def run_multiple_iterations(
+    image,
+    image_id,
+    model,
+    processor,
+    sim_model,
+    clip_model,
+    clip_processor,
+    sd_pipe,
+    prompt,
+    timestamp,
+    num_iterations,
+    images_dir: Path,
+    file_prefix: str,
+):
     """Run multiple caption->generate->caption cycles"""
     
     iteration_results = []
@@ -195,13 +272,14 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
     vision_original_norm = None
     vision_prev_embedding = None
     vision_prev_norm = None
+    clip_embeddings = {}
     
     for iteration in range(num_iterations):
         print(f"    Iteration {iteration + 1}/{num_iterations}")
         
         result = {
             'image_id': image_id,
-            'iteration': iteration + 1,
+            'iteration': iteration,
             'caption': None,
             'similarity_to_original': None,
             'similarity_to_previous': None,
@@ -226,6 +304,13 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             else:
                 img_path = images_dir / f"{file_prefix}_img{image_id:03d}_iter{iteration}_generated.png"
             current_image.save(img_path)
+
+            # Extract CLIP embedding for current image
+            try:
+                clip_emb = get_clip_embedding(current_image, clip_model, clip_processor)
+                clip_embeddings[iteration] = clip_emb
+            except Exception as clip_error:
+                print(f"      Warning: CLIP embedding failed: {clip_error}")
 
             # Extract vision embedding for current image
             added_vision_embedding = False
@@ -271,7 +356,7 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
                 result['converged'] = converged
                 result['attractor_type'] = attr_type
                 if conv_iter >= 0:
-                    result['convergence_iteration'] = conv_iter + 1
+                    result['convergence_iteration'] = conv_iter  # zero-based
                 if converged and iteration < num_iterations - 1:
                     print(f"      CONVERGED to {attr_type} at iteration {result['convergence_iteration']}!")
             
@@ -342,18 +427,17 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
             
             # Generate next image (except on last iteration)
             if iteration < num_iterations - 1:
-                print(f"      Generating image via SDXL...")
+                print(f"      Generating image via SD 1.5 (diffusers)...")
                 seed = (image_id * 100) + (iteration + 1)
-                output = replicate.run(
-                    SDXL_MODEL_ID,
-                    input={"prompt": caption, "seed": seed}
+                generator = torch.Generator(device=sd_pipe.device).manual_seed(seed)
+                sd_output = sd_pipe(
+                    prompt=caption,
+                    num_inference_steps=SD_INFERENCE_STEPS,
+                    guidance_scale=SD_GUIDANCE_SCALE,
+                    generator=generator,
                 )
-                
-                image_url = output[0] if isinstance(output, list) else output
-                response = requests.get(image_url, stream=True)
-                response.raise_for_status()
-                current_image = Image.open(response.raw)
-                
+                current_image = sd_output.images[0]
+
                 clear_memory()
             
         except Exception as e:
@@ -364,7 +448,7 @@ def run_multiple_iterations(image, image_id, model, processor, sim_model, prompt
         
         iteration_results.append(result)
     
-    return iteration_results
+    return iteration_results, clip_embeddings
 
 def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -401,13 +485,22 @@ def main():
     print(f"Model loaded successfully")
     print_gpu_memory()
     
+    # Load CLIP Model
+    print("\n3. LOADING CLIP MODEL")
+    clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_ID)
+    clip_torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID, torch_dtype=clip_torch_dtype).to(CLIP_DEVICE)
+    clip_model.eval()
+    print("CLIP model loaded")
+    print_gpu_memory()
+    
     # Load Sentence Transformer
-    print("\n3. LOADING SENTENCE TRANSFORMER")
+    print("\n4. LOADING SENTENCE TRANSFORMER")
     sim_model = SentenceTransformer(SENTIMENT_MODEL, device=SIM_DEVICE)
     print("Sentence transformer loaded")
     
     # Load Dataset
-    print("\n4. LOADING DATASET")
+    print("\n5. LOADING DATASET")
     
     dataset_name = "detection-datasets/coco"
     dataset_split = f"val[:{NUM_IMAGES}]"
@@ -417,26 +510,39 @@ def main():
     except Exception as e:
         print(f"Error loading dataset: {e}")
         return
+    dataset_size = len(dataset)
+    
+    # Load SD pipeline
+    print("\n6. LOADING STABLE DIFFUSION 1.5 (diffusers)")
+    sd_pipe = load_sd_pipeline(device=SIM_DEVICE if torch.cuda.is_available() else "cpu")
+    print("Stable Diffusion pipeline loaded")
+    print_gpu_memory()
     
     # Prepare prompt
     prompt = "USER: <image>\nDescribe this image in detail.\nASSISTANT:"
     
     # Process images
-    print("\n5. PROCESSING IMAGES")
+    print("\n7. PROCESSING IMAGES")
     
     all_results = []
+    batch_embeddings_by_iter = {iter_idx: [] for iter_idx in range(NUM_ITERATIONS)}
+    batch_image_ids = []
+    batch_start_idx = 1
     
     for i, sample in enumerate(dataset):
         print(f"\n[{i+1}/{NUM_IMAGES}] Processing image {i+1}...")
         print("-" * 80)
         
         image = sample['image']
-        iteration_results = run_multiple_iterations(
+        iteration_results, clip_embeddings = run_multiple_iterations(
             image,
             i + 1,
             model,
             processor,
             sim_model,
+            clip_model,
+            clip_processor,
+            sd_pipe,
             prompt,
             timestamp,
             NUM_ITERATIONS,
@@ -445,11 +551,40 @@ def main():
         )
         all_results.extend(iteration_results)
         
+        # Accumulate CLIP embeddings for checkpointing
+        image_id = i + 1
+        batch_image_ids.append(image_id)
+        for iter_idx, emb in clip_embeddings.items():
+            if emb is not None:
+                batch_embeddings_by_iter.setdefault(iter_idx, []).append(emb.astype(np.float32))
+        
+        # Save checkpoint on interval or at the end
+        if ((i + 1) % CHECKPOINT_INTERVAL == 0) or (i == dataset_size - 1):
+            checkpoint_metadata = {
+                'batch_start': batch_start_idx,
+                'batch_end': image_id,
+                'clip_model_id': CLIP_MODEL_ID,
+                'normalized': True,
+                'num_iterations': NUM_ITERATIONS,
+                'created_at': timestamp,
+            }
+            save_embeddings_checkpoint(
+                run_dir,
+                batch_start_idx,
+                image_id,
+                batch_embeddings_by_iter,
+                batch_image_ids,
+                checkpoint_metadata,
+            )
+            batch_embeddings_by_iter = {iter_idx: [] for iter_idx in range(NUM_ITERATIONS)}
+            batch_image_ids = []
+            batch_start_idx = image_id + 1
+        
         print_gpu_memory()
         print()
     
     # Save results to CSV
-    print("\n6. SAVING RESULTS")
+    print("\n8. SAVING RESULTS")
     
     csv_path = run_dir / f"{run_name}_iteration_results.csv"
     
@@ -472,7 +607,7 @@ def main():
     print(f"✓ Results saved to: {csv_path}")
     
     # Calculate statistics
-    print("\n7. DECAY ANALYSIS")
+    print("\n9. DECAY ANALYSIS")
     
     # Group by iteration
     by_iteration = {}
@@ -559,9 +694,12 @@ def main():
             'llava_do_sample': LLAVA_DO_SAMPLE,
             'num_iterations': NUM_ITERATIONS,
             'num_images_requested': NUM_IMAGES,
-            'sdxl_model_id': SDXL_MODEL_ID,
+            'sd_model_id': SD_MODEL_ID,
+            'sd_inference_steps': SD_INFERENCE_STEPS,
+            'sd_guidance_scale': SD_GUIDANCE_SCALE,
             'convergence_window': CONVERGENCE_WINDOW,
             'convergence_threshold': CONVERGENCE_THRESHOLD,
+            'checkpoint_interval': CHECKPOINT_INTERVAL,
         },
         'dataset': {
             'name': dataset_name,
@@ -580,6 +718,11 @@ def main():
             'decay_stats': decay_stats,
             'fastest_degrading': fastest,
             'most_stable': most_stable,
+        },
+        'embeddings': {
+            'clip_model_id': CLIP_MODEL_ID,
+            'clip_device': CLIP_DEVICE,
+            'clip_normalized': True,
         }
     }
 
