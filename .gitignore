@@ -23,3 +23,5 @@ ENV/
 env/
 
 EOF
+# generated image dumps
+experiments/**/images/
