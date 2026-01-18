@@ -28,3 +28,27 @@ experiments/**/images/
 
 # generated experiment outputs
 experiments/
+# local env / venvs
+info_loss/
+.venv/
+venv/
+
+# experiment outputs
+experiments/
+outputs/
+runs/
+wandb/
+logs/
+
+# big artifacts
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.tiff
+**/*.bmp
+
+# python caches / notebooks
+**/__pycache__/
+**/.ipynb_checkpoints/
+
