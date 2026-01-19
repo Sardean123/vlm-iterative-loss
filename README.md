@@ -11,7 +11,7 @@ Visual overview
 
 | Embedding Clusters | Post-Run Analysis |
 | --- | --- |
-| ![K-Means analysis of CLIP embeddings](KMeans_diagram.png) | ![Post-run metrics and probes](Post_analysis_diagram.png) |
+| ![K-Means analysis of CLIP embeddings](K_Means_diagram.png) | ![Post-run metrics and probes](Post_analysis_diagram.png) |
 
 What’s inside
 -------------
