@@ -7,11 +7,11 @@ Visual overview
 ---------------
 | Caption→Image Loop | Loop With Example Frames |
 | --- | --- |
-| ![Iterative caption-image loop](Main_loop_diagram.png) | ![Loop with sample frames](main_loop_with_image.png) |
+| ![Iterative caption-image loop](diagrams/Main_loop_diagram.png) | ![Loop with sample frames](diagrams/main_loop_with_image.png) |
 
 | Embedding Clusters | Post-Run Analysis |
 | --- | --- |
-| ![K-Means analysis of CLIP embeddings](K_Means_diagram.png) | ![Post-run metrics and probes](Post_analysis_diagram.png) |
+| ![K-Means analysis of CLIP embeddings](diagrams/K_Means_diagram.png) | ![Post-run metrics and probes](diagrams/Post_analysis_diagram.png) |
 
 What’s inside
 -------------
